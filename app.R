@@ -9,10 +9,12 @@ source("R/trap1_sim.R")
 source("R/trap2_sim.R")
 source("R/trap3_sim.R")
 source("R/trap4_sim.R")
+source("R/trap5_sim.R")
 source("R/trap1_ui.R")
 source("R/trap2_ui.R")
 source("R/trap3_ui.R")
 source("R/trap4_ui.R")
+source("R/trap5_ui.R")
 
 ui <- navbarPage(
   title = "Validation Traps",
@@ -52,6 +54,10 @@ ui <- navbarPage(
 
   tabPanel("Trap 4: Expected Attenuation", value = "trap4",
     trap4_ui("trap4")
+  ),
+
+  tabPanel("Trap 5: Temporal Accumulation", value = "trap5",
+    trap5_ui("trap5")
   )
 )
 
@@ -60,11 +66,13 @@ server <- function(input, output, session) {
   trap2_preset <- reactiveVal(NULL)
   trap3_preset <- reactiveVal(NULL)
   trap4_preset <- reactiveVal(NULL)
+  trap5_preset <- reactiveVal(NULL)
 
   trap1_server("trap1", preset = trap1_preset)
   trap2_server("trap2", preset = trap2_preset)
   trap3_server("trap3", preset = trap3_preset)
   trap4_server("trap4", preset = trap4_preset)
+  trap5_server("trap5", preset = trap5_preset)
 
   # --- Handle navigation commands from About page iframe ---
   observeEvent(input$nav_command, {
@@ -77,6 +85,7 @@ server <- function(input, output, session) {
     if (trap == "trap2") visited$trap2 <- TRUE
     if (trap == "trap3") visited$trap3 <- TRUE
     if (trap == "trap4") visited$trap4 <- TRUE
+    if (trap == "trap5") visited$trap5 <- TRUE
 
     updateNavbarPage(session, "main_nav", selected = trap)
 
@@ -90,11 +99,13 @@ server <- function(input, output, session) {
       trap3_preset(params)
     } else if (trap == "trap4") {
       trap4_preset(params)
+    } else if (trap == "trap5") {
+      trap5_preset(params)
     }
   })
 
   # --- Intro modals (once per tab, per session) ---
-  visited <- reactiveValues(trap1 = FALSE, trap2 = FALSE, trap3 = FALSE, trap4 = FALSE)
+  visited <- reactiveValues(trap1 = FALSE, trap2 = FALSE, trap3 = FALSE, trap4 = FALSE, trap5 = FALSE)
 
   show_intro <- function(title, ...) {
     showModal(modalDialog(
@@ -160,6 +171,21 @@ server <- function(input, output, session) {
           "construct dilution, and temporal mismatch."),
         p("Adjust parameters with the sliders to see how each mechanism ",
           "attenuates the observed correlation.")
+      )
+    }
+    if (input$main_nav == "trap5" && !visited$trap5) {
+      visited$trap5 <- TRUE
+      show_intro(
+        "Trap 5: Temporal Accumulation",
+        p("A biomarker that responds within hours may appear to ", strong("lead"),
+          " a clinical outcome assessment by days or weeks. This is not because ",
+          "the biomarker is prognostic — it is because the COA reflects a ",
+          strong("recency-weighted accumulation"), " of the patient's experience."),
+        p("Use ", strong("Parametric"), " mode to adjust the recall kernel via ",
+          "standard parameters, or switch to ", strong("Draw Custom"), " mode to ",
+          "sketch any kernel shape directly on the plot."),
+        p("The cross-correlation in Panel C is computed from a long (10,000-day) ",
+          "series for stability. Panel A shows a representative 300-day segment.")
       )
     }
   })

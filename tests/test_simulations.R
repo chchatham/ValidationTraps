@@ -5,6 +5,7 @@ source("R/trap1_sim.R")
 source("R/trap2_sim.R")
 source("R/trap3_sim.R")
 source("R/trap4_sim.R")
+source("R/trap5_sim.R")
 
 pass <- 0L
 fail <- 0L
@@ -280,6 +281,70 @@ check("Trap4D curves bounded by floor and ceiling",
 check("Trap4D works with different params",
   !is.null(generate_trap4_temporal(shape_bio = 2, rate_bio = 0.5,
                                     shape_coa = 2, rate_coa = 0.5)$stats$temporal_gap))
+
+# --- Trap 5 Tests ---
+
+cat("\n=== Trap 5: Temporal Accumulation ===\n\n")
+
+d5 <- simulate_trap5(seed = 123)
+
+check("Trap5 returns expected structure",
+  all(c("t", "biomarker", "coa", "bio_z", "coa_z", "kernel",
+        "kernel_lags", "lags", "ccf", "stats") %in% names(d5)))
+
+check("Trap5 stats has expected fields",
+  all(c("peak_lag", "peak_r", "r_at_zero", "kernel_com", "recall_period")
+      %in% names(d5$stats)))
+
+check("Trap5 display series length matches n_display",
+  length(d5$t) == 300 && length(d5$biomarker) == 300 &&
+  length(d5$coa) == 300)
+
+check("Trap5 CCF computed from long series (smooth)",
+  length(d5$ccf) == length(d5$lags))
+
+check("Trap5 peak lag is positive (biomarker leads)",
+  d5$stats$peak_lag > 0)
+
+check("Trap5 peak r is greater than r at lag 0",
+  d5$stats$peak_r > d5$stats$r_at_zero)
+
+check("Trap5 kernel sums to 1",
+  abs(sum(d5$kernel) - 1) < 1e-10)
+
+check("Trap5 kernel COM is positive",
+  d5$stats$kernel_com > 0)
+
+check("Trap5 deterministic with same seed",
+  identical(simulate_trap5(seed = 99)$stats$peak_lag,
+            simulate_trap5(seed = 99)$stats$peak_lag))
+
+check("Trap5 different seed gives different result",
+  !identical(simulate_trap5(seed = 1)$biomarker,
+             simulate_trap5(seed = 2)$biomarker))
+
+# Custom kernel
+custom_k <- dgamma(0:27, shape = 2, rate = 0.2)
+d5c <- simulate_trap5(custom_kernel = custom_k, seed = 123)
+
+check("Trap5 custom kernel accepted",
+  length(d5c$kernel) == 28 && abs(sum(d5c$kernel) - 1) < 1e-10)
+
+check("Trap5 custom kernel produces positive peak lag",
+  d5c$stats$peak_lag > 0)
+
+check("Trap5 custom kernel recall_period matches kernel length",
+  d5c$stats$recall_period == 28)
+
+# Edge cases
+check("Trap5 short recall period works",
+  !is.null(simulate_trap5(recall_period = 7, seed = 42)$stats$peak_lag))
+
+check("Trap5 long recall period works",
+  !is.null(simulate_trap5(recall_period = 56, seed = 42)$stats$peak_lag))
+
+check("Trap5 zero-length custom kernel handled",
+  !is.null(simulate_trap5(custom_kernel = rep(0, 10), seed = 42)$stats$peak_r))
 
 # --- Summary ---
 
