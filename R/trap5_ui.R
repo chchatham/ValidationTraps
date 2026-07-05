@@ -69,11 +69,14 @@ trap5_ui <- function(id) {
               HTML("Drive Persistence <span class='param-help' data-tip='AR(1) coefficient of the latent process: higher = slower fluctuations'>?</span>"),
               min = 0.3, max = 0.95, value = 0.75, step = 0.05),
             sliderInput(ns("noise_bio"),
-              HTML("Biomarker Noise <span class='param-help' data-tip='Measurement error SD added to the biomarker'>?</span>"),
-              min = 0.0, max = 0.40, value = 0.08, step = 0.02),
+              HTML("Biomarker Noise <span class='param-help' data-tip='Measurement error SD added to the biomarker (signal SD ~ 1.0)'>?</span>"),
+              min = 0.0, max = 2.0, value = 0.08, step = 0.05),
+            sliderInput(ns("noise_coa"),
+              HTML("COA Noise <span class='param-help' data-tip='Measurement error SD added to the COA report'>?</span>"),
+              min = 0.0, max = 2.0, value = 0.02, step = 0.05),
             sliderInput(ns("coa_unique_sd"),
-              HTML("COA-Unique Variance <span class='param-help' data-tip='SD of latent process specific to the COA (mood, context effects)'>?</span>"),
-              min = 0.0, max = 0.40, value = 0.08, step = 0.02)
+              HTML("COA-Unique Variance <span class='param-help' data-tip='SD of latent COA-specific drift unrelated to biomarker (mood, context)'>?</span>"),
+              min = 0.0, max = 2.0, value = 0.08, step = 0.05)
           ),
           actionButton(ns("resimulate"), "Resimulate",
             class = "btn-primary", style = "width:100%; margin-top: 8px;")
@@ -284,7 +287,7 @@ trap5_server <- function(id, preset = reactiveVal(NULL)) {
         recall_rate = rr,
         custom_kernel = custom_k,
         noise_bio = input$noise_bio,
-        noise_coa = 0.02,
+        noise_coa = input$noise_coa,
         coa_unique_sd = input$coa_unique_sd,
         max_lag = 60,
         seed = s
