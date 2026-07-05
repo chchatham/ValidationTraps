@@ -1,0 +1,305 @@
+---
+title: "Validation Traps: Three Failure Modes in Biomarker Discovery and Development"
+author: ""
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+    toc_float: true
+    theme: flatly
+    fig_width: 8
+    fig_height: 5
+    code_folding: hide
+  pdf_document:
+    toc: true
+    fig_width: 7
+    fig_height: 4.5
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE, message = FALSE, warning = FALSE,
+  fig.align = "center", dpi = 150
+)
+library(MASS)
+library(ggplot2)
+library(pROC)
+library(patchwork)
+
+source("../R/trap1_sim.R")
+source("../R/trap2_sim.R")
+source("../R/trap3_sim.R")
+```
+
+# Introduction
+
+Biomarker discovery programs routinely evaluate candidate markers against established reference standards using cross-sectional correlations, test--retest reliability, and diagnostic accuracy metrics. While each of these metrics is individually informative, they can be profoundly misleading when used to draw conclusions about a biomarker's *longitudinal* behavior or its *combined* diagnostic value. This report demonstrates three failure modes---or "traps"---that arise from common but unwarranted inferences in biomarker validation.
+
+**Trap 1** (the Change-Score Paradox) shows that high cross-sectional convergent validity does not guarantee correlated change scores. **Trap 2** (Reverse Simpson's Paradox) shows the converse: weak cross-sectional correlation does not rule out strong longitudinal sensitivity to change. Together, these two traps illustrate that cross-sectional and longitudinal relationships are logically independent---a consequence of Simpson's paradox operating in both directions. **Trap 3** (the Portfolio Approach) offers a constructive response: rather than seeking a single "unicorn" marker, investigators can assemble portfolios of complementary markers that collectively outperform any individual candidate.
+
+All demonstrations use fully specified generative models, making the data-generating assumptions transparent and the results analytically tractable.
+
+---
+
+# Trap 1: The Change-Score Paradox
+
+## Theory
+
+Consider two measures, X and Y, each comprising a latent trait, state-specific variance (for X only), and measurement error:
+
+$$
+\begin{aligned}
+X_{1i} &= T_{xi} + S_{1i} + \varepsilon_{1xi} \\
+Y_{1i} &= T_{yi} + \varepsilon_{1yi} \\
+X_{2i} &= (T_{xi} + \Delta T_{xi}) + S_{2i} + \varepsilon_{2xi} \\
+Y_{2i} &= (T_{yi} + \Delta T_{yi}) + \varepsilon_{2yi}
+\end{aligned}
+$$
+
+where $(T_{xi}, T_{yi}) \sim \text{MVN}(\mathbf{0}, \Sigma_T)$ with $\text{cor}(T_x, T_y) = r_T$, and $(\Delta T_{xi}, \Delta T_{yi}) \sim \text{MVN}(\mu_\Delta, \Sigma_{\Delta T})$ with $\text{cor}(\Delta T_x, \Delta T_y) = r_{\Delta T}$.
+
+The change scores are:
+
+$$
+\begin{aligned}
+\Delta X_i &= \Delta T_{xi} + (S_{2i} - S_{1i}) + (\varepsilon_{2xi} - \varepsilon_{1xi}) \\
+\Delta Y_i &= \Delta T_{yi} + (\varepsilon_{2yi} - \varepsilon_{1yi})
+\end{aligned}
+$$
+
+Even when $r_T = 0.95$ (excellent convergent validity), $\text{cor}(\Delta X, \Delta Y)$ depends primarily on $r_{\Delta T}$ and the relative magnitudes of change variance vs. noise variance. When true change variance is small and noise is non-trivial, the change-score correlation can be negligible.
+
+## Simulation
+
+```{r trap1-sim, fig.cap="Trap 1: Despite r(X,Y) > 0.90 at both timepoints, the change-score correlation is near zero. Parameters: n=100,000, var_T=1.0, r_T=0.95, var_dT=0.05, r_dT=0.05, var_S=0.015, var_e=0.05, mean_ch=1."}
+d1 <- simulate_trap1(n = 1e5, var_T = 1.0, r_T = 0.95, var_dT = 0.05,
+                      r_dT = 0.05, var_S = 0.015, var_e = 0.05,
+                      mean_ch = 1, seed = 42)
+
+set.seed(42)
+idx <- sample(length(d1$X1), 50)
+df_arrows <- data.frame(
+  x1 = d1$X1[idx], y1 = d1$Y1[idx],
+  x2 = d1$X2[idx], y2 = d1$Y2[idx]
+)
+
+p1a <- ggplot(df_arrows) +
+  geom_point(aes(x = x1, y = y1), color = "steelblue", size = 2, alpha = 0.7) +
+  geom_segment(aes(x = x1, y = y1, xend = x2, yend = y2),
+               arrow = arrow(length = unit(0.08, "inches"), type = "closed"),
+               color = "grey40", alpha = 0.5) +
+  geom_point(aes(x = x2, y = y2), color = "firebrick", size = 2, alpha = 0.7) +
+  labs(title = "Pre → Post Trajectories (n = 50 subsample)",
+       x = "X", y = "Y") +
+  theme_minimal(base_size = 12)
+
+dX <- d1$X2 - d1$X1
+dY <- d1$Y2 - d1$Y1
+set.seed(42)
+pidx <- sample(length(dX), 5000)
+df_ch <- data.frame(dX = dX[pidx], dY = dY[pidx])
+
+p1b <- ggplot(df_ch, aes(x = dX, y = dY)) +
+  geom_point(alpha = 0.08, color = "grey30", size = 0.6) +
+  geom_smooth(method = "lm", color = "firebrick", se = FALSE) +
+  annotate("text", x = Inf, y = Inf,
+           label = sprintf("r(ΔX, ΔY) = %.3f", d1$stats$change_corr),
+           hjust = 1.1, vjust = 1.5, size = 4.5, fontface = "bold",
+           color = "firebrick") +
+  labs(title = "Change-Score Scatter",
+       x = expression(Delta * X), y = expression(Delta * Y)) +
+  theme_minimal(base_size = 12)
+
+p1a + p1b
+```
+
+**Key statistics:** Test--retest reliability X = `r sprintf("%.3f", d1$stats$trt_X)`, Y = `r sprintf("%.3f", d1$stats$trt_Y)`; convergent validity at T1 = `r sprintf("%.3f", d1$stats$conv_T1)`, T2 = `r sprintf("%.3f", d1$stats$conv_T2)`; **change-score correlation = `r sprintf("%.3f", d1$stats$change_corr)`**.
+
+## Implications
+
+A candidate biomarker that correlates highly with a gold standard at baseline should not be assumed to track treatment-induced changes. Longitudinal sensitivity to change must be validated independently, using designs that directly assess the correlation of change scores under intervention.
+
+---
+
+# Trap 2: Simpson's Paradox in Reverse
+
+## Theory
+
+Now consider the converse scenario. Across individuals at a single timepoint, X and Y are uncorrelated---yet within each individual, changes in X track changes in Y over time.
+
+This arises from a hierarchical generative model where between-person intercepts for X and Y are independent, but within-person slopes are coupled:
+
+$$
+\begin{aligned}
+X_{it} &= \beta_{0xi} + \beta_{1xi} \cdot t + \varepsilon_{xit} \\
+Y_{it} &= \beta_{0yi} + \beta_{1yi} \cdot t + \varepsilon_{yit}
+\end{aligned}
+$$
+
+where $(\beta_{0x}, \beta_{0y}) \sim \text{MVN}(\mathbf{0}, \Sigma_B)$ with $r_{\text{cross}} \approx 0$, and $(\beta_{1x}, \beta_{1y}) \sim \text{MVN}(\mathbf{0}, \Sigma_W)$ with $r_{\text{longitudinal}}$ high.
+
+Between-person variance dominates the cross-sectional scatter, masking the within-person coupling. This is Simpson's paradox in reverse: the aggregate relationship is null, but the stratum-specific (within-person) relationship is strong.
+
+## Simulation
+
+```{r trap2-sim, fig.cap="Trap 2: Cross-sectional r ≈ 0, but within-person change coupling is strong. Parameters: n_subjects=200, n_timepoints=5, var_between=1.0, var_within=0.3, r_cross=0.0, r_longitudinal=0.8, var_e=0.1."}
+d2 <- simulate_trap2(n_subjects = 200, n_timepoints = 5,
+                      var_between = 1.0, var_within = 0.3,
+                      r_cross = 0.0, r_longitudinal = 0.8,
+                      var_e = 0.1, seed = 42)
+
+mid_t <- 3
+mid_df <- d2$data[d2$data$time == mid_t, ]
+
+p2a <- ggplot(mid_df, aes(x = X, y = Y)) +
+  geom_point(alpha = 0.5, color = "steelblue", size = 2) +
+  geom_smooth(method = "lm", color = "firebrick", se = FALSE) +
+  annotate("text", x = Inf, y = Inf,
+           label = sprintf("r = %.3f", d2$stats$r_cross_obs),
+           hjust = 1.1, vjust = 1.5, size = 4.5, fontface = "bold",
+           color = "firebrick") +
+  labs(title = sprintf("Cross-Sectional (timepoint %d)", mid_t),
+       x = "X", y = "Y") +
+  theme_minimal(base_size = 12)
+
+df_ch2 <- data.frame(dX = d2$delta_X, dY = d2$delta_Y)
+
+p2b <- ggplot(df_ch2, aes(x = dX, y = dY)) +
+  geom_point(alpha = 0.5, color = "darkorange", size = 2) +
+  geom_smooth(method = "lm", color = "firebrick", se = FALSE) +
+  annotate("text", x = Inf, y = Inf,
+           label = sprintf("r(ΔX, ΔY) = %.3f", d2$stats$r_within_obs),
+           hjust = 1.1, vjust = 1.5, size = 4.5, fontface = "bold",
+           color = "firebrick") +
+  labs(title = "Within-Person Changes (first → last)",
+       x = expression(Delta * X), y = expression(Delta * Y)) +
+  theme_minimal(base_size = 12)
+
+p2a + p2b
+```
+
+**Key statistics:** Cross-sectional r = `r sprintf("%.3f", d2$stats$r_cross_obs)`; within-person r(ΔX, ΔY) = `r sprintf("%.3f", d2$stats$r_within_obs)`; ICC(X) = `r sprintf("%.3f", d2$stats$icc_x)`, ICC(Y) = `r sprintf("%.3f", d2$stats$icc_y)`.
+
+## Implications
+
+Dismissing a candidate biomarker based on a weak cross-sectional correlation with a clinical outcome can be a costly mistake. When between-person variance is large relative to within-person change (high ICC), cross-sectional analyses are dominated by stable individual differences that may be irrelevant to the biomarker's intended use as a change indicator. Longitudinal designs with repeated measures are essential for discovering markers with strong within-person sensitivity to change.
+
+---
+
+# Trap 3: The Portfolio Approach
+
+## Theory
+
+Single diagnostic markers rarely achieve both high sensitivity and high specificity. A marker with high sensitivity (few missed cases) typically has low specificity (many false positives), and vice versa. At low disease prevalence, even moderate specificity produces a devastating positive predictive value (PPV).
+
+Rather than searching for a single "unicorn" marker, a portfolio of complementary markers can be assembled using combination rules:
+
+- **AND** (all positive): maximizes specificity
+- **OR** (any positive): maximizes sensitivity
+- **Majority vote**: balances sensitivity and specificity
+- **Logistic regression**: learns optimal weights from data
+
+## Simulation
+
+```{r trap3-sim, fig.cap="Trap 3: Individual markers (colored) vs. combined portfolio (black) performance. Parameters: n=5000, prevalence=0.10, 4 markers with complementary profiles, majority vote combination."}
+d3 <- simulate_trap3(
+  n = 5000, prevalence = 0.10, k_markers = 4,
+  sensitivities = c(0.90, 0.80, 0.70, 0.95),
+  specificities = c(0.60, 0.85, 0.90, 0.50),
+  combination_rule = "majority", seed = 42
+)
+
+k <- 4
+labels <- c("A", "B", "C", "D")
+colors <- c("#E41A1C", "#377EB8", "#4DAF4A", "#984EA3")
+
+roc_dfs <- lapply(1:k, function(j) {
+  roc_obj <- d3$individual_rocs[[j]]
+  data.frame(
+    fpr = 1 - as.numeric(roc_obj$specificities),
+    tpr = as.numeric(roc_obj$sensitivities),
+    marker = sprintf("Marker %s (AUC=%.2f)", labels[j], auc(roc_obj))
+  )
+})
+comb_df <- data.frame(
+  fpr = 1 - as.numeric(d3$combined_roc$specificities),
+  tpr = as.numeric(d3$combined_roc$sensitivities),
+  marker = sprintf("Combined (AUC=%.2f)", auc(d3$combined_roc))
+)
+all_df <- do.call(rbind, c(roc_dfs, list(comb_df)))
+all_colors <- c(colors, "black")
+names(all_colors) <- unique(all_df$marker)
+
+p3a <- ggplot(all_df, aes(x = fpr, y = tpr, color = marker)) +
+  geom_line(linewidth = 1) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "grey60") +
+  scale_color_manual(values = all_colors) +
+  coord_equal() +
+  labs(title = "ROC Curves", x = "1 - Specificity", y = "Sensitivity", color = NULL) +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "bottom", legend.text = element_text(size = 8)) +
+  guides(color = guide_legend(ncol = 2))
+
+s <- d3$stats
+df_metrics <- data.frame(
+  Marker = rep(c(paste0("Marker ", labels), "Combined"), 4),
+  Metric = rep(c("Sensitivity", "Specificity", "PPV", "NPV"), each = 5),
+  Value = c(
+    c(s$individual_sens, s$combined_sens),
+    c(s$individual_spec, s$combined_spec),
+    c(s$individual_ppv, s$combined_ppv),
+    c(s$individual_npv, s$combined_npv)
+  )
+)
+df_metrics$Marker <- factor(df_metrics$Marker,
+                             levels = c(paste0("Marker ", labels), "Combined"))
+bar_colors <- c(colors, "grey20")
+names(bar_colors) <- levels(df_metrics$Marker)
+
+p3b <- ggplot(df_metrics, aes(x = Metric, y = Value, fill = Marker)) +
+  geom_col(position = position_dodge(width = 0.8), width = 0.7) +
+  scale_fill_manual(values = bar_colors) +
+  scale_y_continuous(limits = c(0, 1), labels = scales::percent) +
+  labs(title = "Performance Metrics (prevalence = 10%)", x = NULL, y = NULL, fill = NULL) +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "bottom", legend.text = element_text(size = 8)) +
+  guides(fill = guide_legend(nrow = 1))
+
+p3a + p3b
+```
+
+## Implications
+
+The portfolio approach reframes biomarker development from a search for individual excellence to a problem of complementary combination. Key practical recommendations:
+
+1. **Characterize markers by their error profiles**, not just their aggregate accuracy. A marker with 90% sensitivity and 60% specificity serves a fundamentally different purpose than one with 70% sensitivity and 90% specificity.
+2. **Consider prevalence explicitly** when evaluating combinations. At low prevalence, the base-rate problem makes high specificity critical for useful PPV.
+3. **Use data-driven combination** (logistic regression) when sufficient labeled data are available, but validate on held-out samples to avoid optimistic bias.
+
+---
+
+# Discussion
+
+The three traps illustrated here share a common theme: single summary statistics computed at one level of analysis can be profoundly misleading about behavior at another level. Convergent validity (cross-sectional) does not predict change sensitivity (longitudinal). The absence of cross-sectional association does not preclude within-person coupling. And single-marker accuracy does not bound portfolio performance.
+
+For biomarker development programs, the practical recommendations are:
+
+1. **Validate longitudinal sensitivity independently** of cross-sectional convergent validity (Trap 1).
+2. **Do not screen out markers** based solely on weak cross-sectional correlations; assess within-person change coupling directly (Trap 2).
+3. **Invest in portfolio strategies** rather than searching for a single perfect marker (Trap 3).
+
+These failure modes are not exotic. They arise from standard psychometric and statistical properties of multi-level data. Awareness of these traps—and the simulation tools provided with this report—can help investigators avoid costly missteps in biomarker discovery and development.
+
+---
+
+# References
+
+- Bland, J.M. & Altman, D.G. (1995). Comparing methods of measurement: why plotting difference against standard method is misleading. *The Lancet*, 346, 1085--1087.
+- Curran, P.J. & Bauer, D.J. (2011). The disaggregation of within-person and between-person effects in longitudinal models of change. *Annual Review of Psychology*, 62, 583--619.
+- Simpson, E.H. (1951). The interpretation of interaction in contingency tables. *Journal of the Royal Statistical Society, Series B*, 13, 238--241.
+- Pepe, M.S. (2003). *The Statistical Evaluation of Medical Tests for Classification and Prediction*. Oxford University Press.
+
+---
+
+*Report generated on `r Sys.Date()`. Source code and interactive Shiny application available in the accompanying repository.*

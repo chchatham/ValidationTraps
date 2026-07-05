@@ -1,0 +1,3 @@
+# ValidationTraps — Error Log
+# Format: [iteration] [timestamp] [error] [resolution]
+# Patterns that repeat → promote to guardrails.md

@@ -1,0 +1,8 @@
+# ValidationTraps — Activity Log
+
+## Iteration 0 — Project Initialization
+- Created .ralph/ state hygiene files
+- Defined 5 phases with checkboxes in ralph_task.md
+- Established guardrails from domain knowledge (psychometrics, Shiny, Simpson's paradox)
+- Documented architectural decisions in progress.md
+- Next: Phase 1 scaffolding (directory structure, stub app.R)

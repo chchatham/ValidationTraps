@@ -1,0 +1,522 @@
+---
+title: "Validation Traps in Biomarker Discovery"
+subtitle: "A Guide to Three Critical Failure Modes"
+output:
+  html_document:
+    self_contained: true
+    theme: readable
+    toc: true
+    toc_float:
+      collapsed: false
+      smooth_scroll: true
+    fig_width: 9
+    fig_height: 4.5
+---
+
+<style>
+body { padding-top: 10px; }
+h1.title { font-size: 1.8em; margin-bottom: 2px; }
+h3.subtitle { font-size: 1.15em; color: #777; font-weight: normal; margin-top: 0; }
+blockquote { border-left: 4px solid #2c3e50; background: #f8f9fa; padding: 12px 20px; margin: 20px 0; font-style: normal; }
+blockquote p { margin-bottom: 4px; }
+.explore-btn {
+  display: inline-block;
+  padding: 12px 28px;
+  background: #2c3e50;
+  color: white !important;
+  border: none;
+  border-radius: 6px;
+  font-size: 1.05em;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+  text-decoration: none;
+}
+.explore-btn:hover {
+  background: #1a252f;
+}
+</style>
+
+<script>
+function exploreInApp(trap, params) {
+  if (window.parent !== window) {
+    parent.postMessage({type: 'navigateToTrap', trap: trap, params: params}, '*');
+  }
+}
+</script>
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE,
+                      fig.align = "center", dpi = 150)
+library(MASS)
+library(ggplot2)
+library(pROC)
+library(patchwork)
+source("../R/trap1_sim.R")
+source("../R/trap2_sim.R")
+source("../R/trap3_sim.R")
+source("../R/trap4_sim.R")
+
+theme_report <- theme_minimal(base_size = 13) +
+  theme(
+    plot.title = element_text(size = 13, face = "bold", hjust = 0),
+    plot.subtitle = element_text(size = 11, color = "#666", hjust = 0),
+    panel.grid.minor = element_blank()
+  )
+```
+
+## Introduction
+
+Biomarker discovery programs invest years and millions of dollars evaluating candidate markers against reference standards. The metrics they use---correlations, reliability coefficients, sensitivity, specificity, predictive values---are individually well understood. Yet these metrics can be profoundly misleading when used to draw conclusions about a marker's behavior at a *different level of analysis* than the one measured.
+
+This report demonstrates three failure modes, or "traps," that arise from common but unwarranted inferences in biomarker validation:
+
+> **Trap 1 --- The Change-Score Paradox:** High cross-sectional convergent validity does *not* guarantee that two measures will show correlated change scores.
+>
+> **Trap 2 --- Simpson's Paradox in Reverse:** A weak or zero cross-sectional correlation does *not* rule out strong within-person longitudinal sensitivity to change.
+>
+> **Trap 3 --- The Unicorn Fallacy:** No single marker needs to excel at everything. Combining complementary imperfect markers can achieve what no individual marker can.
+>
+> **Trap 4 --- Expected Attenuation:** A low Δbiomarker--ΔCOA correlation is *not necessarily* a validation problem. Four benign mechanisms can depress the observed change correlation while an honest structural relationship survives.
+
+These are not exotic pathologies. They arise naturally from the structure of multi-level data whenever trait variance, change variance, and noise contribute differently to cross-sectional versus longitudinal relationships. Traps 1 and 2 are formal converses of each other---Simpson's paradox operating in both directions---Trap 3 offers a constructive response to the imperfections exposed by the first two, and Trap 4 serves as a diagnostic companion to Trap 1, warning against premature pessimism when change correlations appear low.
+
+Each section below explains the trap, demonstrates it with a simulation using fully specified generative models, and draws practical implications. The interactive tabs in this application let you manipulate the parameters yourself to develop deeper intuition.
+
+---
+
+## Trap 1: The Change-Score Paradox {#trap1}
+
+### The Scenario
+
+Suppose you are developing a blood-based biomarker (Marker X) intended to track cognitive decline. You validate it against a well-established neuropsychological test (Measure Y). At baseline, the two correlate at *r* = 0.92---excellent convergent validity by any standard.
+
+Six months later, following an intervention, you measure both again and compute change scores (post minus pre) for each. You expect the change scores to correlate strongly---after all, the measures tap the same construct. Instead, you find *r*(ΔX, ΔY) ≈ 0.05.
+
+The measures agree beautifully about *who scores high* but disagree almost entirely about *who is changing*.
+
+### Why This Happens
+
+Every observed score is a composite of multiple variance sources. At any single timepoint, an observed score reflects:
+
+- **Trait variance** ($\sigma^2_T$): stable individual differences in the construct of interest
+- **State variance** ($\sigma^2_S$): transient fluctuations specific to the testing occasion or method
+- **Error variance** ($\sigma^2_\varepsilon$): random measurement noise
+
+Cross-sectional correlations are dominated by trait variance, because stable differences between people are typically much larger than momentary fluctuations. When both measures tap the same latent trait, the cross-sectional correlation is high almost by definition.
+
+But change scores remove the trait component. What remains is:
+
+$$\Delta X = \underbrace{\Delta T_x}_{\text{true change}} + \underbrace{(S_2 - S_1)}_{\text{state noise}} + \underbrace{(\varepsilon_2 - \varepsilon_1)}_{\text{error noise}}$$
+
+The correlation between ΔX and ΔY now depends on two things: (1) how correlated the *true changes* are ($r_{\Delta T}$), and (2) the ratio of true change variance to total change-score variance. When true changes are small---as they often are in short-interval studies or with modest interventions---the change score is dominated by noise, and even highly correlated true changes become undetectable.
+
+### A Demonstration
+
+```{r trap1-figure, fig.height=4.5, fig.width=9, fig.cap="**Figure 1.** Two measures with outstanding convergent validity (*r* = 0.92 at baseline) show near-zero change-score correlation. **A:** X vs. Y at time 1. **B:** Change scores ΔX vs. ΔY. Parameters: *n* = 100,000; trait correlation *r*_T = 0.95; true change variance = 0.05; true change correlation *r*_ΔT = 0.05; state variance = 0.015; error variance = 0.05."}
+d1 <- simulate_trap1(n = 1e5, var_T = 1.0, r_T = 0.95, var_dT = 0.05,
+                      r_dT = 0.05, var_S = 0.015, var_e = 0.05,
+                      mean_ch = 1, seed = 42)
+
+set.seed(42)
+idx1 <- sample(length(d1$X1), 5000)
+
+p1a <- ggplot(data.frame(X = d1$X1[idx1], Y = d1$Y1[idx1]), aes(X, Y)) +
+  geom_point(shape = 1, color = "steelblue", alpha = 0.3, size = 1) +
+  geom_smooth(method = "lm", color = "#2c3e50", se = FALSE, linewidth = 0.9) +
+  annotate("text", x = Inf, y = -Inf,
+           label = sprintf("r = %.2f", cor(d1$X1, d1$Y1)),
+           hjust = 1.2, vjust = -1, size = 5, fontface = "bold", color = "#2c3e50") +
+  labs(title = "A. Cross-Sectional (Time 1)", x = "Marker X", y = "Measure Y") +
+  theme_report
+
+dX <- d1$X2 - d1$X1
+dY <- d1$Y2 - d1$Y1
+p1b <- ggplot(data.frame(dX = dX[idx1], dY = dY[idx1]), aes(dX, dY)) +
+  geom_point(shape = 1, color = "steelblue", alpha = 0.3, size = 1) +
+  geom_smooth(method = "lm", color = "#dc3545", se = FALSE, linewidth = 0.9) +
+  annotate("text", x = Inf, y = -Inf,
+           label = sprintf("r = %.3f", d1$stats$change_corr),
+           hjust = 1.2, vjust = -1, size = 5, fontface = "bold", color = "#dc3545") +
+  labs(title = "B. Change Scores", x = expression(Delta*"X"), y = expression(Delta*"Y")) +
+  theme_report
+
+p1a + p1b
+```
+
+<div style="text-align: center; margin: 20px 0 30px;">
+<button class="explore-btn" onclick="exploreInApp('trap1', {r_T: 0.95, r_dT: 0.05, var_S: 0.015, var_e: 0.05, var_T: 1.0, var_dT: 0.05, mean_ch: 1, n: '10000'})">
+Explore this interactively &rarr;
+</button>
+</div>
+
+### What to Do About It
+
+The change-score paradox does not mean that change-score correlations are inherently unreliable. It means they must be validated *directly* rather than inferred from cross-sectional convergent validity. Study designs for evaluating a marker's longitudinal sensitivity should:
+
+1. **Assess change-score correlations explicitly** under conditions where true change is expected (e.g., known-groups designs, pre--post intervention).
+2. **Quantify the noise floor** by estimating state variance and measurement error independently---for example, through test--retest designs at short intervals where true change is negligible.
+3. **Report convergent validity and change sensitivity separately** and resist the temptation to assume one implies the other.
+
+---
+
+## Trap 2: Simpson's Paradox in Reverse {#trap2}
+
+### The Scenario
+
+Now consider the converse. You are screening candidate biomarkers for their association with a clinical outcome. You compute cross-sectional correlations in a large sample and find that Marker Z correlates at *r* = 0.02 with the outcome---statistically and practically null. The marker is dropped from the pipeline.
+
+But had you followed individuals over time, you would have discovered something striking: within each person, changes in Marker Z track changes in the clinical outcome with *r* ≈ 0.75. How can a marker be useless *between* people but excellent *within* people?
+
+### Why This Happens
+
+The answer lies in the hierarchical structure of biomarker data. Observed values at any timepoint reflect both stable between-person differences and dynamic within-person fluctuations:
+
+$$X_{it} = \underbrace{\beta_{0i}}_{\text{person } i\text{'s level}} + \underbrace{\beta_{1i} \cdot t}_{\text{person } i\text{'s trajectory}} + \varepsilon_{it}$$
+
+If people differ widely in their baseline levels of X and Y for reasons *unrelated to each other*---genetics, demographics, comorbidities---the cross-sectional scatter will be dominated by these between-person differences, and the X--Y correlation will be near zero.
+
+But if, *within* each person, the processes driving X and Y over time are coupled---a shared disease pathway, a common response to treatment---then individual trajectories will co-move. The between-person noise that swamps the cross-section is irrelevant within a person.
+
+This is Simpson's paradox in reverse: the aggregate (cross-sectional) relationship is null, but the stratum-specific (within-person) relationship is strong. The **intra-class correlation** (ICC)---the proportion of total variance that is between-person---determines how badly the cross-section misrepresents the longitudinal truth. When the ICC is high, most variance is between people, and within-person signal is buried.
+
+### A Demonstration
+
+```{r trap2-figure, fig.height=4.5, fig.width=9, fig.cap="**Figure 2.** Cross-sectional correlation is approximately zero, yet within-person change scores are strongly coupled. **A:** X vs. Y at the middle timepoint across subjects. **B:** Per-person change (first to last timepoint) in X vs. Y. Parameters: *n* = 200 subjects × 5 timepoints; between-person variance = 1.0; within-person change variance = 0.3; cross-sectional *r* = 0.0; longitudinal coupling = 0.8; error variance = 0.1."}
+d2 <- simulate_trap2(n_subjects = 200, n_timepoints = 5,
+                      var_between = 1.0, var_within = 0.3,
+                      r_cross = 0.0, r_longitudinal = 0.8,
+                      var_e = 0.1, seed = 42)
+
+mid_df <- d2$data[d2$data$time == 3, ]
+
+p2a <- ggplot(mid_df, aes(X, Y)) +
+  geom_point(shape = 1, color = "steelblue", alpha = 0.5, size = 1.5) +
+  geom_smooth(method = "lm", color = "#2c3e50", se = FALSE, linewidth = 0.9) +
+  annotate("text", x = Inf, y = -Inf,
+           label = sprintf("r = %.2f", d2$stats$r_cross_obs),
+           hjust = 1.2, vjust = -1, size = 5, fontface = "bold", color = "#2c3e50") +
+  labs(title = "A. Cross-Sectional (Timepoint 3)", x = "Marker Z", y = "Clinical Outcome") +
+  theme_report
+
+p2b <- ggplot(data.frame(dX = d2$delta_X, dY = d2$delta_Y), aes(dX, dY)) +
+  geom_point(shape = 1, color = "darkorange", alpha = 0.5, size = 1.5) +
+  geom_smooth(method = "lm", color = "#2c3e50", se = FALSE, linewidth = 0.9) +
+  annotate("text", x = Inf, y = -Inf,
+           label = sprintf("r = %.2f", d2$stats$r_within_obs),
+           hjust = 1.2, vjust = -1, size = 5, fontface = "bold", color = "#2c3e50") +
+  labs(title = "B. Within-Person Changes", x = expression(Delta*"Z"), y = expression(Delta*"Outcome")) +
+  theme_report
+
+p2a + p2b
+```
+
+<div style="text-align: center; margin: 20px 0 30px;">
+<button class="explore-btn" onclick="exploreInApp('trap2', {n_subjects: 200, n_timepoints: 5, var_between: 1.0, var_within: 0.3, r_cross: 0.0, r_longitudinal: 0.8, var_e: 0.1})">
+Explore this interactively &rarr;
+</button>
+</div>
+
+### What to Do About It
+
+Dismissing biomarker candidates based solely on cross-sectional correlations is a potentially costly error. When between-person variance is large relative to within-person change variance (high ICC)---as is common for many biological measures---cross-sectional analyses are insensitive to within-person signal.
+
+1. **Compute ICCs before interpreting cross-sectional correlations.** If ICC > 0.6, the cross-section is telling you mostly about stable between-person differences, not about within-person dynamics.
+2. **Use repeated-measures designs** to assess within-person change coupling directly. Mixed-effects models that disaggregate between- and within-person effects are the appropriate analytic tool.
+3. **Screen markers longitudinally**, not just cross-sectionally. A marker that looks useless in a cross-section may be the best change indicator in the panel.
+
+---
+
+## Two Sides of One Coin {#bridge}
+
+Traps 1 and 2 are mirror images:
+
+|                | Cross-Sectional      | Longitudinal         |
+|:---------------|:---------------------|:---------------------|
+| **Trap 1**     | Strong (*r* ≈ 0.92)  | Weak (*r* ≈ 0.05)   |
+| **Trap 2**     | Weak (*r* ≈ 0.02)    | Strong (*r* ≈ 0.75)  |
+
+Both arise from the same structural feature: cross-sectional and longitudinal relationships are *logically independent*. The cross-sectional correlation is driven by between-person trait variance; the longitudinal correlation is driven by within-person change variance. These are different quantities governed by different mechanisms, and knowing one tells you almost nothing about the other.
+
+This is a specific instance of the **ecological fallacy**---the error of assuming that relationships observed at one level of analysis (between people) hold at another (within people). In biomarker validation, this fallacy is especially pernicious because the two levels correspond to two different *questions*:
+
+- **Cross-sectional:** "Does this marker distinguish between people with different levels of the construct?"
+- **Longitudinal:** "Does this marker track changes within a person over time?"
+
+Both questions matter for biomarker development. Neither answers the other.
+
+---
+
+## Trap 3: Beyond the Unicorn --- The Portfolio Approach {#trap3}
+
+### The Unicorn Problem
+
+Biomarker development programs often search for a single marker that is simultaneously highly sensitive (catches most true cases) and highly specific (rarely produces false alarms). Such "unicorn" markers are rare for a fundamental statistical reason: sensitivity and specificity trade off along the ROC curve. Moving the decision threshold to catch more cases necessarily admits more false positives, and vice versa.
+
+At low disease prevalence---the setting for most screening applications---this tradeoff is especially painful. Even a marker with 95% sensitivity and 90% specificity has a **positive predictive value (PPV) of only 51%** at 5% prevalence: roughly half of all positive results are false alarms. The base rate problem makes the search for a single satisfactory marker often futile.
+
+### The Portfolio Solution
+
+Rather than searching for a unicorn, consider assembling a *portfolio* of complementary markers---some optimized for sensitivity (good at catching cases, even at the cost of false positives) and others optimized for specificity (good at confirming cases, even at the cost of missing some).
+
+These can be combined using several strategies:
+
+- **AND rule** (all markers must be positive): maximizes specificity. Every marker must agree, so false positives are rare---but missed cases increase.
+- **OR rule** (any marker positive): maximizes sensitivity. Any single alarm triggers a positive, so cases are rarely missed---but false positives accumulate.
+- **Majority vote**: balances sensitivity and specificity. More robust to individual marker failures than AND or OR.
+- **Logistic regression**: learns optimal weights from labeled data. Most flexible but requires training data and risks overfitting without proper validation.
+
+The optimal strategy depends on the clinical context. In screening (low prevalence, high cost of missing a case), OR-like rules may be preferred. In confirmatory diagnosis (moderate prevalence, high cost of false positives), AND-like rules are appropriate. Majority vote and logistic regression occupy the middle ground.
+
+### A Demonstration
+
+```{r trap3-figure, fig.height=5, fig.width=9, fig.cap="**Figure 3.** Four markers with complementary error profiles (colored) and their majority-vote combination (black). No individual marker dominates on all metrics, but the combined portfolio achieves balanced performance. **A:** ROC curves. **B:** Performance metrics at 10% disease prevalence. Parameters: *n* = 5,000; prevalence = 10%; Marker A (sens = 0.90, spec = 0.60), B (sens = 0.80, spec = 0.85), C (sens = 0.70, spec = 0.90), D (sens = 0.95, spec = 0.50); combination = majority vote."}
+d3 <- simulate_trap3(n = 5000, prevalence = 0.10, k_markers = 4,
+                      sensitivities = c(0.90, 0.80, 0.70, 0.95),
+                      specificities = c(0.60, 0.85, 0.90, 0.50),
+                      combination_rule = "majority", seed = 42)
+
+k <- 4
+labels <- c("A", "B", "C", "D")
+colors <- c("#E41A1C", "#377EB8", "#4DAF4A", "#984EA3")
+
+roc_dfs <- lapply(1:k, function(j) {
+  roc_obj <- d3$individual_rocs[[j]]
+  data.frame(fpr = 1 - as.numeric(roc_obj$specificities),
+             tpr = as.numeric(roc_obj$sensitivities),
+             marker = sprintf("Marker %s (AUC = %.2f)", labels[j], auc(roc_obj)))
+})
+comb_df <- data.frame(fpr = 1 - as.numeric(d3$combined_roc$specificities),
+                      tpr = as.numeric(d3$combined_roc$sensitivities),
+                      marker = sprintf("Combined (AUC = %.2f)", auc(d3$combined_roc)))
+all_df <- do.call(rbind, c(roc_dfs, list(comb_df)))
+all_colors <- c(colors, "black")
+names(all_colors) <- unique(all_df$marker)
+
+p3a <- ggplot(all_df, aes(x = fpr, y = tpr, color = marker)) +
+  geom_line(linewidth = 1) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "grey60") +
+  scale_color_manual(values = all_colors) +
+  coord_equal() +
+  labs(title = "A. ROC Curves", x = "1 − Specificity (FPR)", y = "Sensitivity (TPR)",
+       color = NULL) +
+  theme_report +
+  theme(legend.position = "bottom", legend.text = element_text(size = 9)) +
+  guides(color = guide_legend(ncol = 2))
+
+s <- d3$stats
+df_metrics <- data.frame(
+  Marker = rep(c(paste0("Marker ", labels), "Combined"), 4),
+  Metric = rep(c("Sensitivity", "Specificity", "PPV", "NPV"), each = 5),
+  Value = c(c(s$individual_sens, s$combined_sens),
+            c(s$individual_spec, s$combined_spec),
+            c(s$individual_ppv, s$combined_ppv),
+            c(s$individual_npv, s$combined_npv))
+)
+df_metrics$Marker <- factor(df_metrics$Marker,
+                            levels = c(paste0("Marker ", labels), "Combined"))
+bar_colors <- c(colors, "grey20")
+names(bar_colors) <- levels(df_metrics$Marker)
+
+p3b <- ggplot(df_metrics, aes(x = Metric, y = Value, fill = Marker)) +
+  geom_col(position = position_dodge(width = 0.8), width = 0.7) +
+  scale_fill_manual(values = bar_colors) +
+  scale_y_continuous(limits = c(0, 1), labels = scales::percent) +
+  labs(title = "B. Performance Metrics (prevalence = 10%)", x = NULL, y = NULL, fill = NULL) +
+  theme_report +
+  theme(legend.position = "bottom", legend.text = element_text(size = 9)) +
+  guides(fill = guide_legend(nrow = 1))
+
+p3a + p3b
+```
+
+<div style="text-align: center; margin: 20px 0 30px;">
+<button class="explore-btn" onclick="exploreInApp('trap3', {n: 5000, prevalence: 0.10, k_markers: 4, sensitivities: [0.90, 0.80, 0.70, 0.95], specificities: [0.60, 0.85, 0.90, 0.50], rule: 'majority'})">
+Explore this interactively &rarr;
+</button>
+</div>
+
+### What to Do About It
+
+The portfolio approach reframes biomarker development from a search for individual excellence to a problem of complementary combination:
+
+1. **Characterize markers by their error profiles**, not just aggregate accuracy. A marker with 90% sensitivity and 60% specificity serves a fundamentally different role than one with 70% sensitivity and 90% specificity.
+2. **Consider prevalence explicitly.** At low prevalence, specificity is the bottleneck for PPV. At high prevalence, sensitivity matters more for NPV. The optimal combination strategy depends on the clinical context.
+3. **Validate combinations on held-out data.** Data-driven combination rules (logistic regression) are powerful but optimistic if evaluated on the same data used to fit the model. Always use a proper train/test split or cross-validation.
+
+---
+
+## Trap 4: Expected Attenuation --- When Low Change Correlations Are Not a Problem {#trap4}
+
+### The Scenario
+
+Trap 1 warned against optimism: a high cross-sectional convergent validity does not guarantee correlated change scores. But the converse error is equally dangerous---concluding that a biomarker *fails* to track clinical change simply because the observed Δbiomarker--ΔCOA correlation is low. This is premature pessimism: the low correlation may be an artifact of measurement structure, scoring, construct breadth, or temporal alignment rather than evidence that the biomarker is uninformative.
+
+Four distinct mechanisms can produce this "expected attenuation":
+
+### A. Latent-Group Heterogeneity
+
+When the population contains latent subtypes (e.g., responder classes, disease subtypes), the biomarker may track change well *within each subtype* but poorly *across subtypes*. If the between-group mean structure happens to be oriented orthogonally to the within-group slope, pooling across groups cancels the signal entirely---Simpson's paradox operating in change-score space.
+
+### B. Nonisotropic COA Decimation
+
+Clinical outcome assessments often quantize a latent continuum into ordinal bins of *unequal width*. If the biomarker's dynamic range sits in the COA's coarse region---where large latent changes register as zero or one bin crossing---the observed Δbiomarker--ΔCOA correlation is artificially compressed. The biomarker faithfully tracks latent change; the COA simply cannot resolve it.
+
+### C. Construct Dilution
+
+When the COA total score sums multiple latent factors but the biomarker is specific to just one, the on-target correlation is diluted by off-target variance in the total. The biomarker may track its intended dimension with *r* = 0.80, but the total-score correlation drops to *r* = 0.30 because the other factors contribute unrelated change variance.
+
+### D. Temporal Mismatch
+
+The biomarker may be a *leading indicator*---prognostic, predicting future clinical states---while the COA is *retrospective*, reflecting recalled past states. When both are measured at the same time, their sensitivity windows barely overlap, producing a low same-window correlation despite both tracking the same underlying process.
+
+### A Demonstration
+
+```{r trap4-figure, fig.height=4.5, fig.width=9, fig.cap="**Figure 4.** Four benign mechanisms that depress the ΔBiomarker–ΔCOA correlation without invalidating the biomarker. **A:** Within each subtype, changes correlate well (steelblue lines), but pooling cancels the signal (red line). **B:** The biomarker is sensitive where the COA has coarse resolution—the two crossing curves show where each measure is informative. **C:** The biomarker tracks the target subscale strongly (navy line) but the total score weakly (red line) because off-target factors dilute the correlation. **D:** The biomarker peaks after assessment (prognostic, navy); the COA peaks before (retrospective, red)—their sensitivity windows barely overlap."}
+# Panel A
+A <- simulate_trap4_groups(seed = 42)
+set.seed(42); idxA <- sample(nrow(A$data), min(220, nrow(A$data)))
+GROUP_PAL <- c("steelblue", "#5b6b73", "#3f7d78", "#8a6d52")
+NAVY <- "#2c3e50"; RED <- "#dc3545"
+
+pA <- ggplot(A$data[idxA, ], aes(dX, dY, color = group)) +
+  geom_point(shape = 1, alpha = 0.5, size = 1, stroke = 0.5) +
+  geom_smooth(method = "lm", se = FALSE, linewidth = 0.7, aes(group = group)) +
+  geom_smooth(method = "lm", se = FALSE, linewidth = 1.1, color = RED, aes(group = 1)) +
+  scale_color_manual(values = GROUP_PAL, guide = "none") +
+  labs(subtitle = sprintf("A.  within r = %.2f, pooled r = %.2f",
+                           A$stats$within_r_mean, A$stats$pooled_r),
+       x = expression(Delta*"Biomarker"), y = expression(Delta*"COA")) +
+  theme_report
+
+# Panel B
+B <- simulate_trap4_decimation(seed = 42)
+gcurve <- data.frame(L = seq(0, 10, length.out = 200))
+gcurve$sens <- B$gain_fun(gcurve$L); gcurve$sens <- gcurve$sens / max(gcurve$sens)
+res <- B$mapping; res$res_n <- res$resolution / max(res$resolution)
+pB <- ggplot() +
+  geom_line(data = gcurve, aes(L, sens), color = NAVY, linewidth = 1.1) +
+  geom_line(data = res, aes(mid, res_n), color = RED, linewidth = 0.8) +
+  geom_point(data = res, aes(mid, res_n), color = RED, size = 1.2) +
+  annotate("text", x = 0.5, y = 0.65, label = "biomarker\nsensitivity", color = NAVY,
+           size = 3, hjust = 0, lineheight = 0.85, fontface = "bold") +
+  annotate("text", x = 9.5, y = 0.55, label = "COA\nresolution", color = RED,
+           size = 3, hjust = 1, lineheight = 0.85, fontface = "bold") +
+  scale_y_continuous(breaks = c(0, 0.5, 1), limits = c(0, 1.08)) +
+  labs(subtitle = sprintf("B.  latent r = %.2f, binned r = %.2f",
+                           B$stats$r_latent_overall, B$stats$r_binned_obs),
+       x = "latent trait", y = "relative sensitivity / resolution") +
+  theme_report
+
+# Panel C
+vis_c <- generate_trap4c_visual(seed = 42)
+pC <- plot_trap4c(vis_c,
+  subtitle = sprintf("C.  r(target) = %.2f, r(total) = %.2f",
+                     vis_c$stats$r_target, vis_c$stats$r_total),
+  base_size = 11, label_size = 2.0, anno_size = 2.3) +
+  theme_report +
+  theme(axis.text = element_blank(), panel.grid = element_blank())
+
+# Panel D
+D <- generate_trap4_temporal()
+pD <- ggplot(D$curves) +
+  annotate("rect", xmin = -6, xmax = 0, ymin = -Inf, ymax = Inf,
+           fill = "grey60", alpha = 0.10) +
+  geom_vline(xintercept = 0, color = "grey40", linetype = "dashed", linewidth = 0.4) +
+  geom_line(aes(t, biomarker), color = NAVY, linewidth = 1.1) +
+  geom_line(aes(t, coa), color = RED, linewidth = 0.8) +
+  annotate("text", x = 5.0, y = 0.65, label = "biomarker\n(prognostic)", color = NAVY,
+           size = 3, hjust = 0, lineheight = 0.85, fontface = "bold") +
+  annotate("text", x = -5.0, y = 0.65, label = "COA\n(retrospective)", color = RED,
+           size = 3, hjust = 1, lineheight = 0.85, fontface = "bold") +
+  scale_x_continuous(expand = c(0, 0), breaks = seq(-9, 9, 3)) +
+  scale_y_continuous(breaks = c(0, 0.5, 1), limits = c(0, 1.08)) +
+  labs(subtitle = sprintf("D.  bio peak = t+%.1f, COA peak = t%.1f",
+                           D$stats$bio_peak_t, D$stats$coa_peak_t),
+       x = "time from assessment", y = "variance explained") +
+  theme_report
+
+(pA | pB) / (pC | pD) +
+  plot_annotation(
+    title = "Expected Attenuation: Innocent Attenuation of Change Correlations",
+    subtitle = "When a weak Δbiomarker–ΔCOA correlation is not a validation problem",
+    theme = theme_report + theme(
+      plot.title = element_text(size = 14, face = "bold"),
+      plot.subtitle = element_text(size = 11, color = "#666")
+    )
+  )
+```
+
+<div style="text-align: center; margin: 20px 0 30px;">
+<button class="explore-btn" onclick="exploreInApp('trap4', {panel: 'A'})">
+Explore this interactively &rarr;
+</button>
+</div>
+
+### What to Do About It
+
+Before concluding that a biomarker fails to track clinical change, investigate whether the apparent attenuation is innocent:
+
+1. **Check for latent subtypes.** If the population is heterogeneous, stratified analyses may reveal strong within-group change coupling that pooling obscures.
+2. **Evaluate COA resolution.** If the COA has coarse ordinal bins, the biomarker may be tracking real change that the COA cannot resolve. Consider using a finer-grained or continuous outcome measure.
+3. **Assess construct breadth.** If the COA total score aggregates many domains, the biomarker's on-target tracking may be diluted. Test against specific subscales, not just the total.
+4. **Consider temporal alignment.** If the biomarker is a leading indicator, same-window correlations underestimate its value. Lagged analyses or staggered assessment schedules may reveal the true relationship.
+
+---
+
+## Recommendations for Practice {#recommendations}
+
+The four traps share a common lesson: **single summary statistics at one level of analysis can be profoundly misleading about behavior at another level.** For biomarker development programs, this translates to concrete guidance:
+
+1. **Validate longitudinal sensitivity independently** of cross-sectional convergent validity. A strong baseline correlation does not guarantee the marker will track change (Trap 1).
+
+2. **Do not screen out markers based solely on weak cross-sectional correlations.** Compute ICCs and assess within-person change coupling directly using repeated-measures designs (Trap 2).
+
+3. **Invest in portfolio strategies** rather than searching for a single perfect marker. Characterize each candidate's error profile and combine complementary markers using appropriate combination rules (Trap 3).
+
+4. **Before discarding a marker for low change correlation, investigate the source of attenuation.** Group heterogeneity, COA resolution, construct breadth, and temporal alignment can all produce innocently low correlations (Trap 4).
+
+5. **Always report the level of analysis.** When publishing biomarker validation studies, clearly state whether correlations are between-person, within-person, or a mixture. Mixed analyses that do not disaggregate levels are uninterpretable with respect to Traps 1 and 2.
+
+6. **Use simulation to calibrate expectations.** The interactive tabs in this application let you explore how parameter configurations affect observable statistics. This builds intuition for recognizing when your data are in a "trap zone."
+
+---
+
+## Exploring the Interactive Simulations {#using-the-app}
+
+Each tab in this application provides an interactive simulation for one trap:
+
+- **Trap 1 tab:** Adjust trait correlation, true change correlation, state variance, and error variance to see how cross-sectional convergent validity and change-score correlation respond. The arrow plot shows individual trajectories from time 1 to time 2; the scatter plot shows change scores. Hover over points to highlight corresponding trajectories.
+
+- **Trap 2 tab:** Manipulate between-person and within-person variance components to see how the cross-sectional scatter and within-person change scatter diverge. Watch how the ICC determines the degree to which the cross-section misrepresents the longitudinal relationship.
+
+- **Trap 3 tab:** Configure multiple markers with different sensitivity and specificity profiles, set the disease prevalence, and compare combination rules. The ROC curves and performance metrics table show how portfolios compare to individual markers.
+
+- **Trap 4 tab:** Explore four mechanisms (A--D) that innocently attenuate change correlations. Select a panel and adjust parameters to see how group heterogeneity, COA resolution, construct breadth, or temporal alignment depress the observed correlation while the underlying relationship remains intact.
+
+Use the sliders to explore edge cases. What happens when error variance goes to zero? When all markers have identical profiles? When prevalence approaches 50%? These boundary conditions build the deepest intuition for the mechanisms behind each trap.
+
+---
+
+## References {#references}
+
+<div style="font-size: 0.93em; line-height: 1.7;">
+
+Bland, J. M. & Altman, D. G. (1995). Comparing methods of measurement: why plotting difference against standard method is misleading. *The Lancet*, 346, 1085--1087.
+
+Curran, P. J. & Bauer, D. J. (2011). The disaggregation of within-person and between-person effects in longitudinal models of change. *Annual Review of Psychology*, 62, 583--619.
+
+Pepe, M. S. (2003). *The Statistical Evaluation of Medical Tests for Classification and Prediction*. Oxford University Press.
+
+Simpson, E. H. (1951). The interpretation of interaction in contingency tables. *Journal of the Royal Statistical Society, Series B*, 13, 238--241.
+
+Vickers, A. J. & Elkin, E. B. (2006). Decision curve analysis: a novel method for evaluating prediction models. *Medical Decision Making*, 26, 565--574.
+
+</div>
+
+---
+
+<div style="text-align: center; color: #999; font-size: 0.85em; margin-top: 30px;">
+Validation Traps — An interactive scholarly simulation study.<br>
+Return to the simulation tabs above to explore each trap hands-on.
+</div>
